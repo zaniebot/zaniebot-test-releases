@@ -32,7 +32,7 @@ Permissions are split across two jobs:
   - permissions: `deployments: write`
 - `release`
   - environment: `release`
-  - permissions: `contents: write`
+  - permissions: `contents: write`, `deployments: write`
 
 ## Repro
 
