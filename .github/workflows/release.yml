@@ -3,18 +3,6 @@ name: Release Lab
 on:
   workflow_dispatch:
     inputs:
-      experiment:
-        description: Which experiment to run.
-        required: true
-        default: create-release
-        type: choice
-        options:
-          - git-push-tag
-          - create-draft-release
-          - publish-draft-release
-          - create-release
-          - manual-deploy-create-release
-          - manual-deploy-publish-draft-release
       tag:
         description: Tag / release name to use.
         required: true
@@ -23,8 +11,13 @@ on:
         description: Optional target SHA. Defaults to github.sha.
         required: false
         type: string
+      manual-deploy:
+        description: Create a successful manual deployment for the target SHA before creating the release.
+        required: false
+        default: false
+        type: boolean
       notes:
-        description: Release notes for create operations.
+        description: Release notes.
         required: false
         default: playground release
         type: string
@@ -42,18 +35,13 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: true
-
       - name: Resolve inputs
         id: vars
         env:
           INPUT_SHA: ${{ inputs.sha }}
           INPUT_TAG: ${{ inputs.tag }}
-          INPUT_EXPERIMENT: ${{ inputs.experiment }}
           INPUT_NOTES: ${{ inputs.notes }}
+          INPUT_MANUAL_DEPLOY: ${{ inputs.manual-deploy }}
         run: |
           set -euo pipefail
 
@@ -62,7 +50,6 @@ jobs:
             target_sha="$GITHUB_SHA"
           fi
 
-          echo "experiment=$INPUT_EXPERIMENT" >> "$GITHUB_OUTPUT"
           echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
           printf 'notes<<__EOF__\n%s\n__EOF__\n' "$INPUT_NOTES" >> "$GITHUB_OUTPUT"
@@ -70,29 +57,22 @@ jobs:
           {
             echo "## Release Lab"
             echo
-            echo "- experiment: $INPUT_EXPERIMENT"
+            echo "- manual deploy: $INPUT_MANUAL_DEPLOY"
             echo "- tag: $INPUT_TAG"
             echo "- target sha: $target_sha"
             echo "- workflow sha: $GITHUB_SHA"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Configure Git identity
-        run: |
-          git config --global user.name "$GITHUB_ACTOR"
-          git config --global user.email "$GITHUB_ACTOR@users.noreply.github.com"
-
-      - name: Inspect current release state
+      - name: Show deployments for target SHA before release
         env:
-          TAG: ${{ steps.vars.outputs.tag }}
           TARGET_SHA: ${{ steps.vars.outputs.target_sha }}
         run: |
           set -euxo pipefail
-          gh release view "$TAG" --json tagName,isDraft,targetCommitish,url 2>/dev/null || true
           gh api "repos/${GITHUB_REPOSITORY}/deployments?environment=release&sha=${TARGET_SHA}&per_page=20" \
             --jq '.[] | {id, environment, sha, created_at, updated_at}' || true
 
       - name: Create manual deployment for target SHA
-        if: ${{ startsWith(inputs.experiment, 'manual-deploy-') }}
+        if: ${{ inputs.manual-deploy }}
         id: manual_deployment
         env:
           TARGET_SHA: ${{ steps.vars.outputs.target_sha }}
@@ -117,49 +97,23 @@ jobs:
             -f state=success \
             -F auto_inactive=false >/dev/null
 
-      - name: Run experiment
+      - name: Create release
         env:
-          EXPERIMENT: ${{ steps.vars.outputs.experiment }}
           TAG: ${{ steps.vars.outputs.tag }}
           TARGET_SHA: ${{ steps.vars.outputs.target_sha }}
           NOTES: ${{ steps.vars.outputs.notes }}
         run: |
           set -euxo pipefail
+          gh release create "$TAG" --target "$TARGET_SHA" --title "$TAG" --notes "$NOTES"
 
-          case "$EXPERIMENT" in
-            git-push-tag)
-              git tag -f "$TAG" "$TARGET_SHA"
-              git push origin "refs/tags/$TAG"
-              ;;
-            create-draft-release)
-              gh release create "$TAG" --draft --target "$TARGET_SHA" --title "$TAG" --notes "$NOTES"
-              ;;
-            publish-draft-release)
-              gh release edit "$TAG" --draft=false
-              ;;
-            create-release)
-              gh release create "$TAG" --target "$TARGET_SHA" --title "$TAG" --notes "$NOTES"
-              ;;
-            manual-deploy-create-release)
-              gh release create "$TAG" --target "$TARGET_SHA" --title "$TAG" --notes "$NOTES"
-              ;;
-            manual-deploy-publish-draft-release)
-              gh release edit "$TAG" --draft=false
-              ;;
-            *)
-              echo "unknown experiment: $EXPERIMENT" >&2
-              exit 1
-              ;;
-          esac
-
-      - name: Inspect final state
+      - name: Show final state
         if: ${{ always() }}
         env:
           TAG: ${{ steps.vars.outputs.tag }}
           TARGET_SHA: ${{ steps.vars.outputs.target_sha }}
         run: |
           set +e
-          echo "Releases:"
+          echo "Release:"
           gh release view "$TAG" --json tagName,isDraft,targetCommitish,url,publishedAt,createdAt 2>/dev/null || true
           echo
           echo "Deployments for target SHA:"
