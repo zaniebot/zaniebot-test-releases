@@ -11,7 +11,8 @@ Minimal playground for one GitHub behavior:
 
 This repository is configured with:
 
-- a `release` environment that requires approval by `zaniebot`
+- a `release-gate` environment that requires approval by `zaniebot`
+- a `release` environment with no reviewer gate
 - a tag ruleset that requires a successful `release` deployment
 
 ## Workflow
@@ -22,7 +23,16 @@ Inputs:
 
 - `tag`: tag / release name
 - `sha`: optional target SHA; if omitted, uses `github.sha`
-- `manual-deploy`: when true, creates a successful manual deployment for the target SHA before creating the release
+- `manual-deploy`: when true, an approved `release-gate` job creates a successful manual deployment for the target SHA before the release job runs
+
+Permissions are split across two jobs:
+
+- `create-release-deployment`
+  - environment: `release-gate`
+  - permissions: `deployments: write`
+- `release`
+  - environment: `release`
+  - permissions: `contents: write`
 
 ## Repro
 
@@ -32,4 +42,5 @@ Inputs:
    - expected result: failure with `Missing successful active release deployment`
 2. Run it again with the same `sha` but:
    - `manual-deploy = true`
+   - approve the `release-gate` job
    - expected result: success
