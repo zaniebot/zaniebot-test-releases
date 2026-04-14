@@ -44,3 +44,5 @@ Permissions are split across two jobs:
    - `manual-deploy = true`
    - approve the `release-gate` job
    - expected result: success
+
+Scratch commit for current test cycle.
