@@ -1,0 +1,44 @@
+name: No-op Release Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag / release name
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  pre-release:
+    name: pre-release
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - run: echo "no-op release deployment for $GITHUB_SHA"
+
+  release:
+    name: release
+    needs: pre-release
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Show release deployments for this SHA
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/deployments?environment=release&sha=${GITHUB_SHA}&per_page=20" \
+            --jq '.[] | {id, sha, created_at, updated_at}' || true
+
+      - name: Create release
+        run: |
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --notes "no-op prerelease test"
